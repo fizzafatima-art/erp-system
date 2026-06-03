@@ -7,15 +7,26 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
-// CORS ko har jagah se allow karne ke liye (Tension free setup)
+// ✅ CORS - Environment se frontend URL lo
+const allowedOrigins = process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
+    : ['http://localhost:3000', 'http://localhost:5173'];
+
 app.use(cors({
-    origin: '*', // Yeh har tarah ke frontend (localhost aur live website) ko allow kardega
+    origin: (origin, callback) => {
+        // Postman / server-to-server calls (origin undefined) allow karo
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS blocked: ${origin}`));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true   // cookies / auth headers ke liye zaroori
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// ... baaki sab same rehne do
 
 // Request logger
 app.use((req, res, next) => {

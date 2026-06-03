@@ -3,13 +3,13 @@ const logger = require('../utils/logger');
 
 // PostgreSQL Configuration Object
 const config = {
-    host: process.env.DB_SERVER || 'localhost',
+     host: process.env.DB_HOST || 'localhost',  // DB_SERVER → DB_HOST
     database: process.env.DB_NAME || 'ERP_System',
     user: process.env.DB_USER || 'erp_user',
     password: process.env.DB_PASSWORD || 'ErpPass@123',
     port: parseInt(process.env.DB_PORT) || 5432,
     // Render PostgreSQL ke liye SSL zaroori hota hai
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     
     max: 10,
     idleTimeoutMillis: 30000,
