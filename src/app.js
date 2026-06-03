@@ -8,8 +8,11 @@ dotenv.config();
 const app = express();
 
 // Middleware
+// CORS ko har jagah se allow karne ke liye (Tension free setup)
 app.use(cors({
-    origin: process.env.CORS_ORIGIN?.split(',') || '*'
+    origin: '*', // Yeh har tarah ke frontend (localhost aur live website) ko allow kardega
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
