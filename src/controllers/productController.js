@@ -6,38 +6,24 @@ exports.getAllProducts = async (req, res) => {
     try {
         const query = `
             SELECT 
-                P.ProductID, 
-                P.ProductName, 
-                P.Category, 
-                P.Unit, 
-                P.Price, 
-                P.IsActive,
-                ISNULL(S.CurrentQuantity, 0) AS CurrentQuantity,
-                ISNULL(S.MinimumQuantity, 0) AS MinimumQuantity
-            FROM Products P
-            LEFT JOIN Stock S ON P.ProductID = S.ProductID
-            WHERE P.IsActive = 1
-            ORDER BY P.ProductName;
+                p."ProductID", 
+                p."ProductName", 
+                p."Category", 
+                p."Unit", 
+                p."Price", 
+                p."IsActive",
+                COALESCE(s."CurrentQuantity", 0) AS "CurrentQuantity",
+                COALESCE(s."MinimumQuantity", 0) AS "MinimumQuantity"
+            FROM "Products" p
+            LEFT JOIN "Stock" s ON p."ProductID" = s."ProductID"
+            WHERE p."IsActive" = true
+            ORDER BY p."ProductName"
         `;
-        
         const result = await db.executeQuery(query);
-
-        // DEBUG LOG: Ye terminal mein dikhayega DB kya bhej raha hai
-        console.log("RAW RESULT:", JSON.stringify(result).substring(0, 500));
-
-        // FIX: Agar result.recordset hai to use lo, nahi to result (backward compatibility)
-        const data = result.recordset || result;
-
-        res.json({ 
-            success: true, 
-            data: data 
-        });
+        res.json({ success: true, data: result });
     } catch (error) {
         console.error("Error in getAllProducts:", error);
-        res.status(500).json({ 
-            success: false, 
-            message: error.message 
-        });
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -47,29 +33,24 @@ exports.getProductById = async (req, res) => {
     try {
         const query = `
             SELECT 
-                P.ProductID, 
-                P.ProductName, 
-                P.Category, 
-                P.Unit, 
-                P.Price, 
-                P.IsActive,
-                ISNULL(S.MinimumQuantity, 0) AS MinimumQuantity,
-                ISNULL(S.CurrentQuantity, 0) AS CurrentQuantity
-            FROM Products P
-            LEFT JOIN Stock S ON P.ProductID = S.ProductID
-            WHERE P.ProductID = @id
+                p."ProductID", 
+                p."ProductName", 
+                p."Category", 
+                p."Unit", 
+                p."Price", 
+                p."IsActive",
+                COALESCE(s."MinimumQuantity", 0) AS "MinimumQuantity",
+                COALESCE(s."CurrentQuantity", 0) AS "CurrentQuantity"
+            FROM "Products" p
+            LEFT JOIN "Stock" s ON p."ProductID" = s."ProductID"
+            WHERE p."ProductID" = @id
         `;
         const result = await db.executeQuery(query, { id: req.params.id });
-        
-        // FIX: Same logic yahan bhi
-        const data = result.recordset || result;
 
-        // Check length on the array, not the object
-        if (!data || data.length === 0) {
+        if (!result || result.length === 0) {
             return res.status(404).json({ success: false, message: "Product not found" });
         }
-
-        res.json({ success: true, data: data[0] });
+        res.json({ success: true, data: result[0] });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -87,10 +68,11 @@ exports.createProduct = async (req, res) => {
 
         const finalUnit = (unit && ['KG', 'Piece', 'Box', 'Liter', 'Bundle'].includes(unit.trim())) ? unit.trim() : 'Piece';
 
+        // PostgreSQL: OUTPUT INSERTED -> RETURNING
         const insertQuery = `
-            INSERT INTO Products (ProductName, Category, Unit, Price)
-            OUTPUT INSERTED.ProductID
-            VALUES (@productName, @category, @unit, @price);
+            INSERT INTO "Products" ("ProductName", "Category", "Unit", "Price")
+            VALUES (@productName, @category, @unit, @price)
+            RETURNING "ProductID"
         `;
 
         const productResult = await db.executeQuery(insertQuery, {
@@ -100,25 +82,22 @@ exports.createProduct = async (req, res) => {
             price:       price || 0,
         });
 
-        // ID extraction logic: Pehle recordset check karo, phir direct array
-        let newProductID;
-        const insertData = productResult.recordset || productResult;
-        
-        if (Array.isArray(insertData) && insertData.length > 0) {
-            newProductID = insertData[0].ProductID;
-        } else {
+        if (!productResult || productResult.length === 0) {
             throw new Error("Could not retrieve new Product ID");
         }
+        const newProductID = productResult[0].ProductID;
 
         // Initialize Stock
         const minQty = minimumQuantity ? Number(minimumQuantity) : 10;
         
-        const checkStockResult = await db.executeQuery(`SELECT StockID FROM Stock WHERE ProductID = @id`, { id: newProductID });
-        const stockData = checkStockResult.recordset || checkStockResult;
+        const stockCheck = await db.executeQuery(
+            `SELECT "StockID" FROM "Stock" WHERE "ProductID" = @id`, 
+            { id: newProductID }
+        );
 
-        if (stockData.length === 0) {
+        if (!stockCheck || stockCheck.length === 0) {
             await db.executeQuery(
-                `INSERT INTO Stock (ProductID, CurrentQuantity, MinimumQuantity) VALUES (@id, 0, @minQty)`,
+                `INSERT INTO "Stock" ("ProductID", "CurrentQuantity", "MinimumQuantity") VALUES (@id, 0, @minQty)`,
                 { id: newProductID, minQty }
             );
         }
@@ -135,18 +114,15 @@ exports.createProduct = async (req, res) => {
 exports.updateProduct = async (req, res) => {
     try {
         const { productName, category, unit, minimumQuantity, price } = req.body;
-        
         const finalUnit = (unit && ['KG', 'Piece', 'Box', 'Liter', 'Bundle'].includes(unit.trim())) ? unit.trim() : 'Piece';
 
-        // UPDATE query usually returns { recordset: [], rowsAffected: X }
-        // Humein result recordset ki zaroorat nahi padti update ke liye sirf confirmation chahiye
         await db.executeQuery(
-            `UPDATE Products
-             SET ProductName  = @productName,
-                 Category     = @category,
-                 Unit         = @unit,
-                 Price        = @price
-             WHERE ProductID = @id`,
+            `UPDATE "Products"
+             SET "ProductName" = @productName,
+                 "Category"    = @category,
+                 "Unit"        = @unit,
+                 "Price"       = @price
+             WHERE "ProductID" = @id`,
             {
                 id:          req.params.id,
                 productName: (productName || '').trim(),
@@ -158,7 +134,7 @@ exports.updateProduct = async (req, res) => {
 
         if (minimumQuantity != null) {
             await db.executeQuery(
-                `UPDATE Stock SET MinimumQuantity = @minQty WHERE ProductID = @id`,
+                `UPDATE "Stock" SET "MinimumQuantity" = @minQty WHERE "ProductID" = @id`,
                 { id: req.params.id, minQty: Number(minimumQuantity) }
             );
         }
@@ -175,7 +151,7 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
     try {
         await db.executeQuery(
-            `UPDATE Products SET IsActive = 0 WHERE ProductID = @id`,
+            `UPDATE "Products" SET "IsActive" = false WHERE "ProductID" = @id`,
             { id: req.params.id }
         );
         res.json({ success: true, message: 'Product deleted successfully' });

@@ -1,17 +1,16 @@
 const express = require('express');
 const router = express.Router();
 
-// ✅ TEST ROUTE (Harcode)
 router.get('/reports/dashboard', async (req, res) => {
   console.log("🚨🚨🚨 ROUTE HIT SUCCESSFULLY 🚨🚨🚨");
   
   try {
-    const sql = require('mssql');
     const { getPool } = require('../config/database');
-    const pool = await getPool();
+    const pool = getPool(); // PostgreSQL mein await nahi lagta
     
-    const result = await pool.request().query('SELECT SUM(TotalAmount) as TestSales FROM Sales');
-    const sales = result.recordset[0].TestSales;
+    // PostgreSQL syntax - pool.query() directly
+    const result = await pool.query('SELECT SUM("TotalAmount") as testsales FROM "Sales"');
+    const sales = result.rows[0].testsales;
     
     console.log("🔥 DB SALES:", sales);
 
