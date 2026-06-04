@@ -7,22 +7,25 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS - Environment se frontend URL lo
 const allowedOrigins = process.env.FRONTEND_URL
     ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
-    : ['http://localhost:3000', 'http://localhost:5173'];
+    : ['http://localhost:3000'];
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Postman / server-to-server calls (origin undefined) allow karo
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) return callback(null, true);
+        // Development mein sab allow karo
+        if (process.env.NODE_ENV !== 'production') return callback(null, true);
         callback(new Error(`CORS blocked: ${origin}`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true   // cookies / auth headers ke liye zaroori
+    credentials: true
 }));
+
+
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
