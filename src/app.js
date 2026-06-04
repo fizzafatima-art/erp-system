@@ -7,29 +7,17 @@ dotenv.config();
 
 const app = express();
 
-const allowedOrigins = process.env.FRONTEND_URL
-    ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
-    : ['http://localhost:3000'];
-
+// ✅ CORS - Sab origins allow (production fix)
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        // Development mein sab allow karo
-        if (process.env.NODE_ENV !== 'production') return callback(null, true);
-        callback(new Error(`CORS blocked: ${origin}`));
-    },
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-
-
+app.options('*', cors()); // Preflight requests handle karo
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// ... baaki sab same rehne do
 
 // Request logger
 app.use((req, res, next) => {
@@ -51,35 +39,29 @@ const loadRoute = (path, routeModule) => {
     }
 };
 
-// --- 1. CORE MODULES (These must exist) ---
+// --- 1. CORE MODULES ---
 loadRoute('/vendors', require('./routes/vendorRoutes'));
 loadRoute('/products', require('./routes/productRoutes'));
 loadRoute('/purchases', require('./routes/purchaseRoutes'));
-loadRoute('/sales', require('./routes/saleRoutes')); // Ensure saleRoutes.js has /return route
+loadRoute('/sales', require('./routes/saleRoutes'));
 loadRoute('/stock', require('./routes/stockRoutes'));
 
-// --- 2. DASHBOARD (Fixed & Mounted) ---
-// Directly require and mount to ensure it works regardless of reportRoutes
+// --- 2. DASHBOARD ---
 try {
     const dashboardController = require('./controllers/dashboardController');
-    
-    // Dashboard KPIs
     app.get(`${apiBase}/reports/dashboard`, dashboardController.getDashboardKPI);
-    
-    // City Wise Analytics (ADDED)
     app.get(`${apiBase}/reports/city-analytics`, dashboardController.getCityAnalytics);
-    
     console.log("✅ Dashboard API Mounted");
 } catch (err) {
     console.error("❌ Dashboard Controller Missing:", err.message);
 }
 
-// --- 3. LEDGER (Safely Loaded) ---
+// --- 3. LEDGER ---
 try {
     loadRoute('/ledger', require('./routes/ledgerRoutes'));
 } catch (e) { console.log("⚠️  Ledger routes not found. Skipping..."); }
 
-// --- 4. OTHER MODULES (Optional) ---
+// --- 4. OTHER MODULES ---
 try {
     loadRoute('/expenses', require('./routes/expenseRoutes'));
 } catch (e) { console.log("⚠️  Expenses routes not found. Skipping..."); }
@@ -92,13 +74,12 @@ try {
     loadRoute('/payments', require('./routes/paymentRoutes'));
 } catch (e) { console.log("⚠️  Payments routes not found. Skipping..."); }
 
-
 // Health Check
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date() });
 });
 
-// 404 Handler (Agar upar koi route match nahi karta)
+// 404 Handler
 app.use((req, res) => {
     console.log(`❌ 404 Hit: ${req.method} ${req.originalUrl}`);
     res.status(404).json({ 
@@ -109,7 +90,7 @@ app.use((req, res) => {
     });
 });
 
-// Global Error Handler (Internal Server Errors ke liye)
+// Global Error Handler
 app.use((err, req, res, next) => {
     logger.error('Unhandled error:', err);
     res.status(err.statusCode || 500).json({ 
