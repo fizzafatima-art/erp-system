@@ -1,67 +1,57 @@
 const db = require('../config/database');
-const { executeQuery } = require('../config/database');
 
-// @desc    Get Dashboard KPI Data
-// @route   GET /api/v1/reports/dashboard
 const getDashboardKPI = async (req, res) => {
     try {
-        const result = await executeQuery("EXEC sp_GetDashboardKPI");
+        const salesRes = await db.executeQuery(
+            `SELECT COALESCE(SUM("TotalAmount"), 0) as "Total" FROM "Sales" WHERE "IsActive" = true`
+        );
+        const purchaseRes = await db.executeQuery(
+            `SELECT COALESCE(SUM("TotalAmount"), 0) as "Total" FROM "Purchases" WHERE "IsActive" = true`
+        );
+        const expenseRes = await db.executeQuery(
+            `SELECT COALESCE(SUM("Amount"), 0) as "Total" FROM "Expenses"`
+        );
+        const payablesRes = await db.executeQuery(
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "PaymentStatus" != 'Paid'`
+        );
+        const receivablesRes = await db.executeQuery(
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "PaymentStatus" != 'Paid'`
+        );
+        const lowStockRes = await db.executeQuery(
+            `SELECT COUNT(*) as "Count" FROM "Stock" WHERE "CurrentQuantity" <= "MinimumQuantity"`
+        );
 
-        if (result && result.length > 0) {
-            res.status(200).json(result[0]);
-        } else {
-            res.status(200).json({ 
-                totalPurchases: 0, 
-                totalSales: 0, 
-                totalExpenses: 0,
-                outstandingPayables: 0,
-                outstandingReceivables: 0,
-                lowStockCount: 0
-            });
-        }
-    } catch (error) {
-        console.error("Error fetching dashboard KPI:", error);
-        res.status(500).json({ message: "Server Error", error: error.message });
-    }
-};
-
-// @desc    Get Dashboard summary (purchases, sales, expenses, net profit)
-// @route   GET /api/v1/reports/dashboard (alternate)
-const getDashboard = async (req, res) => {
-    try {
-        const purchases = await db.executeQuery('SELECT ISNULL(SUM(TotalAmount),0) as Total FROM Purchases');
-        const sales = await db.executeQuery('SELECT ISNULL(SUM(TotalAmount),0) as Total FROM Sales');
-        const expenses = await db.executeQuery('SELECT ISNULL(SUM(Amount),0) as Total FROM Expenses');
-        
         res.json({
             success: true,
             data: {
-                totalPurchase: purchases[0].Total,
-                totalSale: sales[0].Total,
-                totalExpense: expenses[0].Total,
-                netProfit: sales[0].Total - purchases[0].Total - expenses[0].Total
+                totalSales:      salesRes[0]?.Total || 0,
+                totalPurchases:  purchaseRes[0]?.Total || 0,
+                totalExpenses:   expenseRes[0]?.Total || 0,
+                payables:        payablesRes[0]?.Total || 0,
+                receivables:     receivablesRes[0]?.Total || 0,
+                lowStockCount:   lowStockRes[0]?.Count || 0,
+                netProfit:       (salesRes[0]?.Total || 0) - (purchaseRes[0]?.Total || 0) - (expenseRes[0]?.Total || 0)
             }
         });
     } catch (error) {
+        console.error("Error fetching dashboard KPI:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// @desc    Get outstanding payables and receivables
-// @route   GET /api/v1/reports/outstanding
 const getOutstanding = async (req, res) => {
     try {
         const payables = await db.executeQuery(
-            "SELECT ISNULL(SUM(BalanceAmount),0) as Total FROM Purchases WHERE PaymentStatus != 'Paid'"
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "PaymentStatus" != 'Paid'`
         );
         const receivables = await db.executeQuery(
-            "SELECT ISNULL(SUM(BalanceAmount),0) as Total FROM Sales WHERE PaymentStatus != 'Paid'"
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "PaymentStatus" != 'Paid'`
         );
-        
+
         res.json({
             success: true,
             data: {
-                payables: payables[0].Total,
+                payables:    payables[0].Total,
                 receivables: receivables[0].Total
             }
         });
@@ -70,9 +60,4 @@ const getOutstanding = async (req, res) => {
     }
 };
 
-// All functions exported together — never mix module.exports and exports.x
-module.exports = {
-    getDashboardKPI,
-    getDashboard,
-    getOutstanding
-};
+module.exports = { getDashboardKPI, getOutstanding };
