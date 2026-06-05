@@ -18,12 +18,12 @@ exports.getDashboardKPI = async (req, res) => {
         const totalExpenses = expenseRes[0]?.Total || 0;
 
         const recRes = await db.executeQuery(
-            `SELECT COALESCE(SUM("TotalAmount"), 0) - COALESCE(SUM("ReceivedAmount"), 0) as "Total" FROM "Sales" WHERE "IsActive" = true`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
         const receivables = recRes[0]?.Total || 0;
 
         const payRes = await db.executeQuery(
-            `SELECT COALESCE(SUM("TotalAmount"), 0) - COALESCE(SUM("PaidAmount"), 0) as "Total" FROM "Purchases" WHERE "IsActive" = true`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
         const payables = payRes[0]?.Total || 0;
 

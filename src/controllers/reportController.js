@@ -12,10 +12,10 @@ const getDashboardKPI = async (req, res) => {
             `SELECT COALESCE(SUM("Amount"), 0) as "Total" FROM "Expenses"`
         );
         const payablesRes = await db.executeQuery(
-            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "PaymentStatus" != 'Paid'`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
         const receivablesRes = await db.executeQuery(
-            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "PaymentStatus" != 'Paid'`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
         const lowStockRes = await db.executeQuery(
             `SELECT COUNT(*) as "Count" FROM "Stock" WHERE "CurrentQuantity" <= "MinimumQuantity"`
@@ -24,13 +24,13 @@ const getDashboardKPI = async (req, res) => {
         res.json({
             success: true,
             data: {
-                totalSales:      salesRes[0]?.Total || 0,
-                totalPurchases:  purchaseRes[0]?.Total || 0,
-                totalExpenses:   expenseRes[0]?.Total || 0,
-                payables:        payablesRes[0]?.Total || 0,
-                receivables:     receivablesRes[0]?.Total || 0,
-                lowStockCount:   lowStockRes[0]?.Count || 0,
-                netProfit:       (salesRes[0]?.Total || 0) - (purchaseRes[0]?.Total || 0) - (expenseRes[0]?.Total || 0)
+                totalSales:     salesRes[0]?.Total || 0,
+                totalPurchases: purchaseRes[0]?.Total || 0,
+                totalExpenses:  expenseRes[0]?.Total || 0,
+                payables:       payablesRes[0]?.Total || 0,
+                receivables:    receivablesRes[0]?.Total || 0,
+                lowStockCount:  lowStockRes[0]?.Count || 0,
+                netProfit:      (salesRes[0]?.Total || 0) - (purchaseRes[0]?.Total || 0) - (expenseRes[0]?.Total || 0)
             }
         });
     } catch (error) {
@@ -42,10 +42,10 @@ const getDashboardKPI = async (req, res) => {
 const getOutstanding = async (req, res) => {
     try {
         const payables = await db.executeQuery(
-            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "PaymentStatus" != 'Paid'`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Purchases" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
         const receivables = await db.executeQuery(
-            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "PaymentStatus" != 'Paid'`
+            `SELECT COALESCE(SUM("BalanceAmount"), 0) as "Total" FROM "Sales" WHERE "IsActive" = true AND "BalanceAmount" > 0`
         );
 
         res.json({
