@@ -137,68 +137,36 @@ exports.createPurchase = async (req, res) => {
 };
 
 exports.addPayment = async (req, res) => {
-    res.status(501).json({ message: "Add Payment coming soon" });
-};
-
-exports.returnPurchase = async (req, res) => {
     try {
-        const { PurchaseID, ReturnDate, Reason } = req.body;
-        if (!PurchaseID) return res.status(400).json({ success: false, message: "PurchaseID required" });
+        const purchaseID = Number(req.params.id);
+        const { amount, method, chequeNo, bankDetails, notes } = req.body;
 
-        const purchaseRes = await db.executeQuery(
-            `SELECT * FROM "Purchases" WHERE "PurchaseID" = @Id`, { Id: Number(PurchaseID) }
+        if (!amount || Number(amount) <= 0)
+            return res.status(400).json({ success: false, message: "Valid amount is required" });
+
+        const pRes = await db.executeQuery(
+            `SELECT * FROM "Purchases" WHERE "PurchaseID" = @ID`, { ID: purchaseID }
         );
-        if (!purchaseRes || purchaseRes.length === 0) return res.status(404).json({ success: false, message: "Purchase not found" });
-        const purchase = purchaseRes[0];
+        if (!pRes || pRes.length === 0)
+            return res.status(404).json({ success: false, message: "Purchase not found" });
 
-        if (purchase.IsActive === false || purchase.IsActive === 0) {
-            return res.status(400).json({ success: false, message: "Purchase already returned" });
-        }
+        const purchase = pRes[0];
+        const payAmount  = Math.min(Number(amount), Number(purchase.BalanceAmount));
+        const newPaid    = Number(purchase.PaidAmount) + payAmount;
+        const newBalance = Number(purchase.TotalAmount) - newPaid;
+        const newStatus  = newBalance <= 0 ? 'Paid' : 'Partial';
 
-        const items = await db.executeQuery(
-            `SELECT * FROM "PurchaseItems" WHERE "PurchaseID" = @Id`, { Id: Number(PurchaseID) }
-        );
+        await db.executeQuery(`
+            UPDATE "Purchases"
+            SET "PaidAmount"    = @paid,
+                "BalanceAmount" = @balance,
+                "PaymentStatus" = @status
+            WHERE "PurchaseID" = @ID
+        `, { paid: newPaid, balance: newBalance, status: newStatus, ID: purchaseID });
 
-        for (const item of items) {
-            await db.executeQuery(`
-                UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
-                WHERE "ProductID" = @ProductID
-            `, { Qty: Number(item.Quantity), ProductID: Number(item.ProductID) });
-
-            await db.executeQuery(`
-                INSERT INTO "StockMovement" ("ProductID", "MovementType", "Quantity", "ReferenceID", "ReferenceType", "Remarks", "CreatedAt")
-                VALUES (@ProductID, 'Return', @Qty, @RefID, 'Purchase', @Remarks, NOW())
-            `, {
-                ProductID: Number(item.ProductID),
-                Qty: Number(item.Quantity),
-                RefID: Number(PurchaseID),
-                Remarks: Reason || `Purchase Return: ${purchase.InvoiceNo}`
-            });
-        }
-
-        await db.executeQuery(
-            `UPDATE "Purchases" SET "IsActive" = false WHERE "PurchaseID" = @Id`, { Id: Number(PurchaseID) }
-        );
-
-        try {
-            await db.executeQuery(`
-                INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Credit", "CreatedAt")
-                VALUES (@VendorID, @Date, 'Purchase', @Remarks, @RefID, @InvoiceNo, @Amount, NOW())
-            `, {
-                VendorID: Number(purchase.VendorID),
-                Date: ReturnDate || new Date(),
-                Remarks: `Purchase Return: ${purchase.InvoiceNo}`,
-                RefID: Number(PurchaseID),
-                InvoiceNo: purchase.InvoiceNo,
-                Amount: Number(purchase.TotalAmount)
-            });
-        } catch (ledgerErr) {
-            console.error("Ledger failed (non-blocking):", ledgerErr.message);
-        }
-
-        res.json({ success: true, message: "Purchase returned and stock deducted" });
+        res.json({ success: true, message: "Payment recorded", newBalance, newStatus });
     } catch (error) {
-        console.error("Return Purchase Error:", error);
+        console.error("Add Payment Error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
