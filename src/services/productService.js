@@ -23,9 +23,9 @@ class ProductService {
     }
 
     async createProduct(data) {
-        const { productName, category, brand, unit, description } = data;
+        const { productName, category, brand, unit, description, companyName } = data;
         const query = `
-            INSERT INTO Products (ProductName, Category, Brand, Unit, Description)
+            INSERT INTO Products (ProductName, Category, Brand, Unit, Description, CompanyName)
             VALUES (@productName, @category, @brand, @unit, @description);
             SELECT SCOPE_IDENTITY() as ProductID;
         `;

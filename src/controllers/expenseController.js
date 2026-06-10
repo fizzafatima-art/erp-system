@@ -21,7 +21,7 @@ exports.getAllExpenses = async (req, res) => {
 
 exports.createExpense = async (req, res) => {
   try {
-    const { category, description, amount, paymentMethod } = req.body;
+    const { category, description, amount, paymentMethod, expenseDate } = req.body;
 
     if (!category || !category.toString().trim())
       return res.status(400).json({ success: false, message: 'Category is required.' });
@@ -30,12 +30,13 @@ exports.createExpense = async (req, res) => {
 
     await db.executeQuery(`
       INSERT INTO "Expenses" ("ExpenseDate", "Category", "Description", "Amount", "PaymentMethod", "IsApproved")
-      VALUES (NOW(), @category, @description, @amount, @paymentMethod, true)
+      VALUES (@expenseDate, @category, @description, @amount, @paymentMethod, true)
     `, {
       category:      category.toString().trim(),
       description:   description ? description.toString().trim() : null,
       amount:        Number(amount),
       paymentMethod: paymentMethod ? paymentMethod.toString() : 'Cash',
+      expenseDate: expenseDate || new Date().toISOString().split('T')[0],
     });
 
     res.status(201).json({ success: true, message: 'Expense recorded successfully.' });
@@ -68,6 +69,7 @@ exports.updateExpense = async (req, res) => {
       description:   description ? description.toString().trim() : null,
       amount:        Number(amount),
       paymentMethod: paymentMethod ? paymentMethod.toString() : 'Cash',
+      expenseDate: expenseDate || new Date().toISOString().split('T')[0],
       ...(expenseDate ? { expenseDate } : {}),
     });
 
