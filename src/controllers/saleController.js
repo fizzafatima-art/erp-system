@@ -1,9 +1,8 @@
 const db = require('../config/database');
 
-// @desc    Get all sales
 exports.getAllSales = async (req, res) => {
     try {
-        const query = `
+        const result = await db.executeQuery(`
             SELECT 
                 s."SaleID", s."InvoiceNo", s."SaleDate", s."CustomerID",
                 v."VendorName" AS "CustomerName", v."City",
@@ -13,8 +12,7 @@ exports.getAllSales = async (req, res) => {
             LEFT JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
             WHERE s."IsActive" = true
             ORDER BY s."SaleDate" DESC
-        `;
-        const result = await db.executeQuery(query);
+        `);
         res.json({ success: true, data: result });
     } catch (error) {
         console.error("Error in Sales Controller:", error);
@@ -22,30 +20,25 @@ exports.getAllSales = async (req, res) => {
     }
 };
 
-// @desc    Get single sale by ID
 exports.getSaleById = async (req, res) => {
     try {
-        const { id } = req.params;
         const result = await db.executeQuery(
-            `SELECT * FROM "Sales" WHERE "SaleID" = @Id`, { Id: id }
+            `SELECT * FROM "Sales" WHERE "SaleID" = @Id`, { Id: req.params.id }
         );
-        if (!result || result.length === 0) {
+        if (!result || result.length === 0)
             return res.status(404).json({ success: false, message: "Sale not found" });
-        }
         res.json({ success: true, data: result[0] });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// @desc    Create a new Sale
 exports.createSale = async (req, res) => {
     try {
         const { CustomerID, SaleDate, Description, TotalAmount, ReceivedAmount, Items } = req.body;
 
-        if (!CustomerID || !Items || Items.length === 0) {
+        if (!CustomerID || !Items || Items.length === 0)
             return res.status(400).json({ success: false, message: "Customer and Items are required" });
-        }
 
         const InvoiceNo = `INV-S-${Date.now()}`;
         const Paid = Number(ReceivedAmount) || 0;
@@ -53,7 +46,6 @@ exports.createSale = async (req, res) => {
         const Balance = Total - Paid;
         const PaymentStatus = Balance <= 0 ? 'Paid' : (Paid > 0 ? 'Partial' : 'Pending');
 
-        // PostgreSQL: RETURNING instead of OUTPUT INSERTED
         const masterResult = await db.executeQuery(`
             INSERT INTO "Sales" ("InvoiceNo", "CustomerID", "SaleDate", "Description", "TotalAmount", "ReceivedAmount", "BalanceAmount", "PaymentStatus")
             VALUES (@InvoiceNo, @CustomerID, @SaleDate, @Description, @TotalAmount, @ReceivedAmount, @BalanceAmount, @PaymentStatus)
@@ -85,8 +77,7 @@ exports.createSale = async (req, res) => {
 
             try {
                 await db.executeQuery(`
-                    UPDATE "Stock" 
-                    SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+                    UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
                     WHERE "ProductID" = @ProductID
                 `, { Qty, ProductID });
             } catch (stockError) {
@@ -117,11 +108,60 @@ exports.createSale = async (req, res) => {
     }
 };
 
+// @desc    Add payment to existing sale
+// @route   PUT /api/v1/sales/:id/payment
 exports.addPayment = async (req, res) => {
-    res.status(501).json({ message: "Add Payment feature coming soon" });
+    try {
+        const saleID = Number(req.params.id);
+        const { amount, method, chequeNo, bankDetails, notes } = req.body;
+
+        if (!amount || Number(amount) <= 0)
+            return res.status(400).json({ success: false, message: "Valid amount is required" });
+
+        const saleRes = await db.executeQuery(
+            `SELECT * FROM "Sales" WHERE "SaleID" = @SaleID`, { SaleID: saleID }
+        );
+        if (!saleRes || saleRes.length === 0)
+            return res.status(404).json({ success: false, message: "Sale not found" });
+
+        const sale = saleRes[0];
+        const payAmount = Math.min(Number(amount), Number(sale.BalanceAmount));
+        const newReceived = Number(sale.ReceivedAmount) + payAmount;
+        const newBalance  = Number(sale.TotalAmount) - newReceived;
+        const newStatus   = newBalance <= 0 ? 'Paid' : 'Partial';
+
+        await db.executeQuery(`
+            UPDATE "Sales"
+            SET "ReceivedAmount" = @received,
+                "BalanceAmount"  = @balance,
+                "PaymentStatus"  = @status
+            WHERE "SaleID" = @SaleID
+        `, { received: newReceived, balance: newBalance, status: newStatus, SaleID: saleID });
+
+        // Ledger entry
+        try {
+            const remarks = `Payment (${method || 'Cash'})${chequeNo ? ' Chq#' + chequeNo : ''}${bankDetails ? ' - ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
+            await db.executeQuery(`
+                INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Debit", "CreatedAt")
+                VALUES (@VendorID, NOW(), 'Payment', @Remarks, @RefID, @InvoiceNo, @Amount, NOW())
+            `, {
+                VendorID:  Number(sale.CustomerID),
+                Remarks:   remarks,
+                RefID:     saleID,
+                InvoiceNo: sale.InvoiceNo,
+                Amount:    payAmount
+            });
+        } catch (ledgerErr) {
+            console.error("Ledger entry failed (non-blocking):", ledgerErr.message);
+        }
+
+        res.json({ success: true, message: "Payment recorded successfully", newBalance, newStatus });
+    } catch (error) {
+        console.error("Add Payment Error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 
-// @desc    Return a Sale
 exports.returnSale = async (req, res) => {
     try {
         const { SaleID } = req.body;
@@ -130,12 +170,12 @@ exports.returnSale = async (req, res) => {
         const saleRes = await db.executeQuery(
             `SELECT * FROM "Sales" WHERE "SaleID" = @SaleID`, { SaleID: Number(SaleID) }
         );
-        if (!saleRes || saleRes.length === 0) return res.status(404).json({ success: false, message: "Sale not found" });
+        if (!saleRes || saleRes.length === 0)
+            return res.status(404).json({ success: false, message: "Sale not found" });
         const sale = saleRes[0];
 
-        if (sale.PaymentStatus === 'Returned') {
+        if (sale.PaymentStatus === 'Returned')
             return res.status(400).json({ success: false, message: "Sale already returned" });
-        }
 
         const items = await db.executeQuery(
             `SELECT * FROM "SaleItems" WHERE "SaleID" = @SaleID`, { SaleID: Number(SaleID) }
@@ -146,16 +186,10 @@ exports.returnSale = async (req, res) => {
                 `UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" + @Qty, "LastUpdated" = NOW() WHERE "ProductID" = @ProductID`,
                 { Qty: Number(item.Quantity), ProductID: Number(item.ProductID) }
             );
-
             await db.executeQuery(
                 `INSERT INTO "StockMovement" ("ProductID", "MovementType", "Quantity", "ReferenceID", "ReferenceType", "Remarks", "CreatedAt")
                  VALUES (@ProductID, 'Return', @Qty, @RefID, 'Sale', @Remarks, NOW())`,
-                {
-                    ProductID: Number(item.ProductID),
-                    Qty: Number(item.Quantity),
-                    RefID: Number(SaleID),
-                    Remarks: `Sale Return: ${sale.InvoiceNo}`
-                }
+                { ProductID: Number(item.ProductID), Qty: Number(item.Quantity), RefID: Number(SaleID), Remarks: `Sale Return: ${sale.InvoiceNo}` }
             );
         }
 
@@ -168,16 +202,10 @@ exports.returnSale = async (req, res) => {
             await db.executeQuery(
                 `INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Debit", "CreatedAt")
                  VALUES (@VendorID, NOW(), 'Sale Return', @Remarks, @RefID, @InvoiceNo, @Amount, NOW())`,
-                {
-                    VendorID: Number(sale.CustomerID),
-                    Remarks: `Sale Return: ${sale.InvoiceNo}`,
-                    RefID: Number(SaleID),
-                    InvoiceNo: sale.InvoiceNo,
-                    Amount: Number(sale.TotalAmount)
-                }
+                { VendorID: Number(sale.CustomerID), Remarks: `Sale Return: ${sale.InvoiceNo}`, RefID: Number(SaleID), InvoiceNo: sale.InvoiceNo, Amount: Number(sale.TotalAmount) }
             );
         } catch (ledgerErr) {
-            console.error("Ledger insert failed (non-blocking):", ledgerErr.message);
+            console.error("Ledger insert failed:", ledgerErr.message);
         }
 
         res.json({ success: true, message: "Sale returned successfully" });

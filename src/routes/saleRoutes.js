@@ -7,6 +7,7 @@ router.post('/return',  saleController.returnSale);
 router.post('/payment', saleController.addPayment);
 
 // Generic routes BAAD MEIN
+router.put('/:id/payment', saleController.addPayment);
 router.get('/',     saleController.getAllSales);
 router.post('/',    saleController.createSale);
 router.get('/:id',  saleController.getSaleById);
