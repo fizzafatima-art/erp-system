@@ -26,10 +26,10 @@ class ProductService {
         const { productName, category, brand, unit, description, companyName } = data;
         const query = `
             INSERT INTO Products (ProductName, Category, Brand, Unit, Description, CompanyName)
-            VALUES (@productName, @category, @brand, @unit, @description);
+            VALUES (@productName, @category, @brand, @unit, @description, @companyName);
             SELECT SCOPE_IDENTITY() as ProductID;
         `;
-        const result = await db.executeQuery(query, { productName, category, brand, unit, description });
+        const result = await db.executeQuery(query, { productName, category, brand, unit, description, companyName });
         return result[0].ProductID;
     }
 
@@ -39,6 +39,7 @@ class ProductService {
         
         Object.keys(data).forEach(key => {
             // FIX: Convert 'productName' to 'ProductName' (PascalCase) to match SQL Schema
+      companyName: companyName ? companyName.toString().trim() : null,
             // We do this by capitalizing the first letter
             const sqlColName = key.charAt(0).toUpperCase() + key.slice(1);
             
