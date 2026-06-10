@@ -1,25 +1,18 @@
 const db = require('../config/database');
 
-// @desc    Get all products
-// @route   GET /api/v1/products
 exports.getAllProducts = async (req, res) => {
     try {
-        const query = `
+        const result = await db.executeQuery(`
             SELECT 
-                p."ProductID", 
-                p."ProductName", 
-                p."Category", 
-                p."Unit", 
-                p."Price", 
-                p."IsActive",
+                p."ProductID", p."ProductName", p."Category", p."CompanyName",
+                p."Unit", p."Price", p."IsActive",
                 COALESCE(s."CurrentQuantity", 0) AS "CurrentQuantity",
                 COALESCE(s."MinimumQuantity", 0) AS "MinimumQuantity"
             FROM "Products" p
             LEFT JOIN "Stock" s ON p."ProductID" = s."ProductID"
             WHERE p."IsActive" = true
             ORDER BY p."ProductName"
-        `;
-        const result = await db.executeQuery(query);
+        `);
         res.json({ success: true, data: result });
     } catch (error) {
         console.error("Error in getAllProducts:", error);
@@ -27,72 +20,57 @@ exports.getAllProducts = async (req, res) => {
     }
 };
 
-// @desc    Get single product by ID
-// @route   GET /api/v1/products/:id
 exports.getProductById = async (req, res) => {
     try {
-        const query = `
+        const result = await db.executeQuery(`
             SELECT 
-                p."ProductID", 
-                p."ProductName", 
-                p."Category", 
-                p."Unit", 
-                p."Price", 
-                p."IsActive",
+                p."ProductID", p."ProductName", p."Category", p."CompanyName",
+                p."Unit", p."Price", p."IsActive",
                 COALESCE(s."MinimumQuantity", 0) AS "MinimumQuantity",
                 COALESCE(s."CurrentQuantity", 0) AS "CurrentQuantity"
             FROM "Products" p
             LEFT JOIN "Stock" s ON p."ProductID" = s."ProductID"
             WHERE p."ProductID" = @id
-        `;
-        const result = await db.executeQuery(query, { id: req.params.id });
+        `, { id: req.params.id });
 
-        if (!result || result.length === 0) {
+        if (!result || result.length === 0)
             return res.status(404).json({ success: false, message: "Product not found" });
-        }
         res.json({ success: true, data: result[0] });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// @desc    Create a new Product
-// @route   POST /api/v1/products
 exports.createProduct = async (req, res) => {
     try {
-        const { productName, category, unit, minimumQuantity, price } = req.body;
+        const { productName, category, companyName, unit, minimumQuantity, price } = req.body;
 
-        if (!productName) {
+        if (!productName)
             return res.status(400).json({ success: false, message: 'Product Name is required.' });
-        }
 
-        const finalUnit = (unit && ['KG', 'Piece', 'Box', 'Liter', 'Bundle'].includes(unit.trim())) ? unit.trim() : 'Piece';
+        const allowedUnits = ['KG', 'Piece', 'Box', 'Liter', 'Bundle', 'Pcs', 'Bundle (Kg)', 'Ltr'];
+        const finalUnit = (unit && allowedUnits.includes(unit.trim())) ? unit.trim() : 'Piece';
 
-        // PostgreSQL: OUTPUT INSERTED -> RETURNING
-        const insertQuery = `
-            INSERT INTO "Products" ("ProductName", "Category", "Unit", "Price")
-            VALUES (@productName, @category, @unit, @price)
+        const productResult = await db.executeQuery(`
+            INSERT INTO "Products" ("ProductName", "Category", "CompanyName", "Unit", "Price")
+            VALUES (@productName, @category, @companyName, @unit, @price)
             RETURNING "ProductID"
-        `;
-
-        const productResult = await db.executeQuery(insertQuery, {
+        `, {
             productName: productName.trim(),
             category:    (category || '').trim(),
+            companyName: (companyName || '').trim(),
             unit:        finalUnit,
             price:       price || 0,
         });
 
-        if (!productResult || productResult.length === 0) {
+        if (!productResult || productResult.length === 0)
             throw new Error("Could not retrieve new Product ID");
-        }
-        const newProductID = productResult[0].ProductID;
 
-        // Initialize Stock
+        const newProductID = productResult[0].ProductID;
         const minQty = minimumQuantity ? Number(minimumQuantity) : 10;
-        
+
         const stockCheck = await db.executeQuery(
-            `SELECT "StockID" FROM "Stock" WHERE "ProductID" = @id`, 
-            { id: newProductID }
+            `SELECT "StockID" FROM "Stock" WHERE "ProductID" = @id`, { id: newProductID }
         );
 
         if (!stockCheck || stockCheck.length === 0) {
@@ -109,28 +87,28 @@ exports.createProduct = async (req, res) => {
     }
 };
 
-// @desc    Update Product
-// @route   PUT /api/v1/products/:id
 exports.updateProduct = async (req, res) => {
     try {
-        const { productName, category, unit, minimumQuantity, price } = req.body;
-        const finalUnit = (unit && ['KG', 'Piece', 'Box', 'Liter', 'Bundle'].includes(unit.trim())) ? unit.trim() : 'Piece';
+        const { productName, category, companyName, unit, minimumQuantity, price } = req.body;
+        const allowedUnits = ['KG', 'Piece', 'Box', 'Liter', 'Bundle', 'Pcs', 'Bundle (Kg)', 'Ltr'];
+        const finalUnit = (unit && allowedUnits.includes(unit.trim())) ? unit.trim() : 'Piece';
 
-        await db.executeQuery(
-            `UPDATE "Products"
-             SET "ProductName" = @productName,
-                 "Category"    = @category,
-                 "Unit"        = @unit,
-                 "Price"       = @price
-             WHERE "ProductID" = @id`,
-            {
-                id:          req.params.id,
-                productName: (productName || '').trim(),
-                category:    (category || '').trim(),
-                unit:        finalUnit,
-                price:       price || 0,
-            }
-        );
+        await db.executeQuery(`
+            UPDATE "Products"
+            SET "ProductName"  = @productName,
+                "Category"     = @category,
+                "CompanyName"  = @companyName,
+                "Unit"         = @unit,
+                "Price"        = @price
+            WHERE "ProductID" = @id
+        `, {
+            id:          req.params.id,
+            productName: (productName || '').trim(),
+            category:    (category || '').trim(),
+            companyName: (companyName || '').trim(),
+            unit:        finalUnit,
+            price:       price || 0,
+        });
 
         if (minimumQuantity != null) {
             await db.executeQuery(
@@ -146,8 +124,6 @@ exports.updateProduct = async (req, res) => {
     }
 };
 
-// @desc    Delete Product
-// @route   DELETE /api/v1/products/:id
 exports.deleteProduct = async (req, res) => {
     try {
         await db.executeQuery(
