@@ -35,26 +35,35 @@ const loadRoute = (path, routeModule) => {
 };
 
 // Routes
-try { loadRoute('/vendors', require('./routes/vendorRoutes')); } 
-catch (e) { console.log("Vendors routes not found. Skipping..."); }
+try { loadRoute('/vendors',   require('./routes/vendorRoutes'));   }
+catch (e) { console.log("Vendors skipped:", e.message); }
 
-try { loadRoute('/sales', require('./routes/salesRoutes')); } 
-catch (e) { console.log("Sales routes not found. Skipping..."); }
+try { loadRoute('/products',  require('./routes/productRoutes'));  }  // ← ADDED
+catch (e) { console.log("Products skipped:", e.message); }
 
-try { loadRoute('/purchases', require('./routes/purchaseRoutes')); } 
-catch (e) { console.log("Purchase routes not found. Skipping..."); }
+try { loadRoute('/sales',     require('./routes/saleRoutes'));     }  // ← saleRoutes (bina s)
+catch (e) { console.log("Sales skipped:", e.message); }
 
-try { loadRoute('/ledger', require('./routes/ledgerRoutes')); } 
-catch (e) { console.log("Ledger routes not found. Skipping..."); }
+try { loadRoute('/purchases', require('./routes/purchaseRoutes')); }
+catch (e) { console.log("Purchases skipped:", e.message); }
 
-try { loadRoute('/expenses', require('./routes/expenseRoutes')); } 
-catch (e) { console.log("Expenses routes not found. Skipping..."); }
+try { loadRoute('/stock',     require('./routes/stockRoutes'));    }  // ← ADDED
+catch (e) { console.log("Stock skipped:", e.message); }
 
-try { loadRoute('/reports', require('./routes/reportRoutes')); } 
-catch (e) { console.log("Reports routes not found. Skipping..."); }
+try { loadRoute('/ledger',    require('./routes/ledgerRoutes'));   }
+catch (e) { console.log("Ledger skipped:", e.message); }
 
-try { loadRoute('/payments', require('./routes/paymentRoutes')); } 
-catch (e) { console.log("Payments routes not found. Skipping..."); }
+try { loadRoute('/expenses',  require('./routes/expenseRoutes'));  }
+catch (e) { console.log("Expenses skipped:", e.message); }
+
+try { loadRoute('/reports',   require('./routes/reportRoutes'));   }
+catch (e) { console.log("Reports skipped:", e.message); }
+
+try { loadRoute('/payments',  require('./routes/paymentRoutes'));  }
+catch (e) { console.log("Payments skipped:", e.message); }
+
+try { loadRoute('/dashboard', require('./routes/dashboardRoutes')); }
+catch (e) { console.log("Dashboard skipped:", e.message); }
 
 // Health Check
 app.get('/health', (req, res) => {
