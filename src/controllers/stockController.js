@@ -85,3 +85,29 @@ exports.getStockById = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+exports.getStockMovement = async (req, res) => {
+    try {
+        const result = await db.executeQuery(`
+            SELECT 
+                sm."MovementID",
+                sm."CreatedAt" AS "Date",
+                p."ProductName",
+                p."Unit",
+                p."Price",
+                sm."MovementType",
+                sm."Quantity",
+                sm."Remarks",
+                sm."ReferenceType",
+                sm."ReferenceID",
+                s."CurrentQuantity"
+            FROM "StockMovement" sm
+            JOIN "Products" p ON sm."ProductID" = p."ProductID"
+            JOIN "Stock" s ON sm."ProductID" = s."ProductID"
+            ORDER BY sm."CreatedAt" DESC
+        `);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error("Stock Movement Error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
