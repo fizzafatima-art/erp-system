@@ -63,14 +63,14 @@ exports.getVendorProfit = async (req, res) => {
         const result = await db.executeQuery(`
             SELECT 
                 v."VendorName",
-                SUM((si."Rate" - p."Price") * si."Quantity") AS "TotalProfit"
-            FROM "SaleItems" si
-            JOIN "Sales" s ON si."SaleID" = s."SaleID"
-            JOIN "Products" p ON si."ProductID" = p."ProductID"
+                COALESCE(SUM(p."TotalAmount"), 0) AS "TotalPurchases",
+                COALESCE(SUM(p."PaidAmount"), 0) AS "TotalPaid",
+                COALESCE(SUM(p."BalanceAmount"), 0) AS "TotalBalance"
+            FROM "Purchases" p
             JOIN "Vendors" v ON p."VendorID" = v."VendorID"
-            WHERE v."VendorType" IN ('Vendor', 'Supplier')
+            WHERE v."VendorType" IN ('Vendor', 'Supplier', 'Both')
             GROUP BY v."VendorName"
-            ORDER BY "TotalProfit" DESC
+            ORDER BY "TotalPurchases" DESC
         `);
         res.json({ success: true, data: result });
     } catch (error) {
