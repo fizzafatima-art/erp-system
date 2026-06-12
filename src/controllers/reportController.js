@@ -1,4 +1,4 @@
-const db = require('../config/database');
+const db = require('../../config/database'); // Do steps up (../) root jane ke liye
 
 // ==========================================
 // DASHBOARD KPIs
