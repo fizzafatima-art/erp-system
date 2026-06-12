@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 // Agar utils bhi src ke andar hai, toh path update kiya
-const logger = require('./src/utils/logger'); 
+const logger = require('./utils/logger');
 
 dotenv.config();
 const app = express();
