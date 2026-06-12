@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const logger = require('./utils/logger');
+// Agar utils bhi src ke andar hai, toh path update kiya
+const logger = require('./src/utils/logger'); 
 
 dotenv.config();
 const app = express();
@@ -27,16 +28,17 @@ const loadRoute = (path, routeModule) => {
     logger.info(`Route loaded: ${apiBase}${path}`);
 };
 
-try { loadRoute('/vendors',   require('./routes/vendorRoutes'));   } catch(e) { console.log('vendors skip:', e.message); }
-try { loadRoute('/products',  require('./routes/productRoutes'));  } catch(e) { console.log('products skip:', e.message); }
-try { loadRoute('/sales',     require('./routes/saleRoutes'));     } catch(e) { console.log('sales skip:', e.message); }
-try { loadRoute('/purchases', require('./routes/purchaseRoutes')); } catch(e) { console.log('purchases skip:', e.message); }
-try { loadRoute('/stock',     require('./routes/stockRoutes'));    } catch(e) { console.log('stock skip:', e.message); }
-try { loadRoute('/ledger',    require('./routes/ledgerRoutes'));   } catch(e) { console.log('ledger skip:', e.message); }
-try { loadRoute('/expenses',  require('./routes/expenseRoutes'));  } catch(e) { console.log('expenses skip:', e.message); }
-try { loadRoute('/reports',   require('./routes/reportRoutes'));   } catch(e) { console.log('reports skip:', e.message); }
-try { loadRoute('/payments',  require('./routes/paymentRoutes'));  } catch(e) { console.log('payments skip:', e.message); }
-try { loadRoute('/dashboard', require('./routes/dashboardRoutes')); } catch(e) { console.log('dashboard skip:', e.message); }
+// --- Updated Paths (src folder ke andar) ---
+try { loadRoute('/vendors',   require('./src/routes/vendorRoutes'));   } catch(e) { console.log('vendors skip:', e.message); }
+try { loadRoute('/products',  require('./src/routes/productRoutes'));  } catch(e) { console.log('products skip:', e.message); }
+try { loadRoute('/sales',     require('./src/routes/saleRoutes'));     } catch(e) { console.log('sales skip:', e.message); }
+try { loadRoute('/purchases', require('./src/routes/purchaseRoutes')); } catch(e) { console.log('purchases skip:', e.message); }
+try { loadRoute('/stock',     require('./src/routes/stockRoutes'));    } catch(e) { console.log('stock skip:', e.message); }
+try { loadRoute('/ledger',    require('./src/routes/ledgerRoutes'));   } catch(e) { console.log('ledger skip:', e.message); }
+try { loadRoute('/expenses',  require('./src/routes/expenseRoutes'));  } catch(e) { console.log('expenses skip:', e.message); }
+try { loadRoute('/reports',   require('./src/routes/reportRoutes'));   } catch(e) { console.log('reports skip:', e.message); }
+try { loadRoute('/payments',  require('./src/routes/paymentRoutes'));  } catch(e) { console.log('payments skip:', e.message); }
+try { loadRoute('/dashboard', require('./src/routes/dashboardRoutes')); } catch(e) { console.log('dashboard skip:', e.message); }
 
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date() });
