@@ -32,17 +32,27 @@ exports.getVendorById = async (req, res) => {
 // @desc    Create New Vendor
 exports.createVendor = async (req, res) => {
     try {
+        // ContactPerson wapas add kiya
         const { VendorName, ContactPerson, Phone, Email, City, Address, VendorType, OpeningBalance } = req.body;
 
         await db.executeQuery(`
             INSERT INTO "Vendors" (
-                "VendorName", "Phone", "Email", "City", "Address", 
+                "VendorName", "ContactPerson", "Phone", "Email", "City", "Address", 
                 "VendorType", "OpeningBalance", "IsActive", "CreatedAt"
             ) VALUES (
-                @VendorName, @Phone, @Email, @City, @Address,
+                @VendorName, @ContactPerson, @Phone, @Email, @City, @Address,
                 @VendorType, @OpeningBalance, true, NOW()
             )
-        `, { VendorName, Phone, Email, City, Address, VendorType, OpeningBalance: OpeningBalance || 0 });
+        `, { 
+            VendorName, 
+            ContactPerson: ContactPerson || null, // Agar empty hai to null save hoga
+            Phone, 
+            Email, 
+            City, 
+            Address, 
+            VendorType, 
+            OpeningBalance: OpeningBalance || 0 
+        });
 
         res.json({ success: true, message: 'Vendor added successfully' });
     } catch (error) {
@@ -59,6 +69,7 @@ exports.updateVendor = async (req, res) => {
         await db.executeQuery(`
             UPDATE "Vendors" SET
                 "VendorName"     = @VendorName,
+                "ContactPerson"  = @ContactPerson,
                 "Phone"          = @Phone,
                 "Email"          = @Email,
                 "City"           = @City,
@@ -66,7 +77,17 @@ exports.updateVendor = async (req, res) => {
                 "VendorType"     = @VendorType,
                 "OpeningBalance" = @OpeningBalance
             WHERE "VendorID" = @Id
-        `, { VendorName, Phone, Email, City, Address, VendorType, OpeningBalance: OpeningBalance || 0, Id: req.params.id });
+        `, { 
+            VendorName, 
+            ContactPerson: ContactPerson || null,
+            Phone, 
+            Email, 
+            City, 
+            Address, 
+            VendorType, 
+            OpeningBalance: OpeningBalance || 0, 
+            Id: req.params.id 
+        });
 
         res.json({ success: true, message: 'Vendor updated successfully' });
     } catch (error) {
