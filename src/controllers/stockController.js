@@ -6,7 +6,8 @@ exports.getCurrentStock = async (req, res) => {
             SELECT 
                 s."StockID", s."ProductID", s."CurrentQuantity", 
                 s."MinimumQuantity", s."MaximumQuantity", s."LastUpdated",
-                p."ProductName", p."Category", p."Unit"
+                p."ProductName", p."Category", p."Unit",
+                p."Price"           -- <--- YE LINE ADD KAREIN
             FROM "Stock" s
             JOIN "Products" p ON s."ProductID" = p."ProductID"
             ORDER BY p."ProductName" ASC
