@@ -33,12 +33,44 @@ exports.getSaleById = async (req, res) => {
     }
 };
 
+// @desc    Create a new Sale (with Stock Validation)
 exports.createSale = async (req, res) => {
     try {
         const { CustomerID, SaleDate, Description, TotalAmount, ReceivedAmount, Items } = req.body;
 
         if (!CustomerID || !Items || Items.length === 0)
             return res.status(400).json({ success: false, message: "Customer and Items are required" });
+
+        // ✅ STEP 1: Stock Validation - har item ka stock check karo BEFORE insert
+        for (const item of Items) {
+            const ProductID = Number(item.ProductID);
+            const Qty = Number(item.Quantity);
+
+            const stockRes = await db.executeQuery(
+                `SELECT s."CurrentQuantity", p."ProductName" 
+                 FROM "Stock" s 
+                 JOIN "Products" p ON s."ProductID" = p."ProductID"
+                 WHERE s."ProductID" = @ProductID`,
+                { ProductID }
+            );
+
+            const available = stockRes.length > 0 ? Number(stockRes[0].CurrentQuantity) : 0;
+            const productName = stockRes.length > 0 ? stockRes[0].ProductName : `Product #${ProductID}`;
+
+            if (available <= 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `"${productName}" is Out of Stock!` 
+                });
+            }
+
+            if (available < Qty) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Insufficient stock for "${productName}". Available: ${available}, Requested: ${Qty}` 
+                });
+            }
+        }
 
         const InvoiceNo = `INV-S-${Date.now()}`;
         const Paid = Number(ReceivedAmount) || 0;
@@ -75,14 +107,10 @@ exports.createSale = async (req, res) => {
                 VALUES (@SaleID, @ProductID, @Quantity, @Rate, @Amount)
             `, { SaleID: newSaleID, ProductID, Quantity: Qty, Rate, Amount });
 
-            try {
-                await db.executeQuery(`
-                    UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
-                    WHERE "ProductID" = @ProductID
-                `, { Qty, ProductID });
-            } catch (stockError) {
-                console.error("Stock Update Failed for ProductID " + ProductID, stockError);
-            }
+            await db.executeQuery(`
+                UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+                WHERE "ProductID" = @ProductID
+            `, { Qty, ProductID });
         }
 
         try {
@@ -108,8 +136,6 @@ exports.createSale = async (req, res) => {
     }
 };
 
-// @desc    Add payment to existing sale
-// @route   PUT /api/v1/sales/:id/payment
 exports.addPayment = async (req, res) => {
     try {
         const saleID = Number(req.params.id);
@@ -125,7 +151,7 @@ exports.addPayment = async (req, res) => {
             return res.status(404).json({ success: false, message: "Sale not found" });
 
         const sale = saleRes[0];
-        const payAmount = Math.min(Number(amount), Number(sale.BalanceAmount));
+        const payAmount  = Math.min(Number(amount), Number(sale.BalanceAmount));
         const newReceived = Number(sale.ReceivedAmount) + payAmount;
         const newBalance  = Number(sale.TotalAmount) - newReceived;
         const newStatus   = newBalance <= 0 ? 'Paid' : 'Partial';
@@ -138,7 +164,6 @@ exports.addPayment = async (req, res) => {
             WHERE "SaleID" = @SaleID
         `, { received: newReceived, balance: newBalance, status: newStatus, SaleID: saleID });
 
-        // Ledger entry
         try {
             const remarks = `Payment (${method || 'Cash'})${chequeNo ? ' Chq#' + chequeNo : ''}${bankDetails ? ' - ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
             await db.executeQuery(`
