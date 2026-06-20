@@ -22,12 +22,29 @@ exports.getAllSales = async (req, res) => {
 
 exports.getSaleById = async (req, res) => {
     try {
-        const result = await db.executeQuery(
-            `SELECT * FROM "Sales" WHERE "SaleID" = @Id`, { Id: req.params.id }
+        const saleResult = await db.executeQuery(
+            `SELECT s.*, v."VendorName" AS "CustomerName", v."City" AS "CustomerCity", v."Phone" AS "CustomerPhone"
+             FROM "Sales" s
+             LEFT JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
+             WHERE s."SaleID" = @Id`,
+            { Id: req.params.id }
         );
-        if (!result || result.length === 0)
+        if (!saleResult || saleResult.length === 0)
             return res.status(404).json({ success: false, message: "Sale not found" });
-        res.json({ success: true, data: result[0] });
+
+        const itemsResult = await db.executeQuery(
+            `SELECT si."SaleItemID", si."ProductID", si."Quantity", si."Rate", si."Amount",
+                    p."ProductName"
+             FROM "SaleItems" si
+             LEFT JOIN "Products" p ON si."ProductID" = p."ProductID"
+             WHERE si."SaleID" = @Id`,
+            { Id: req.params.id }
+        );
+
+        const sale = saleResult[0];
+        sale.Items = itemsResult;
+
+        res.json({ success: true, data: sale });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

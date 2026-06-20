@@ -22,11 +22,29 @@ exports.getAllPurchases = async (req, res) => {
 exports.getPurchaseById = async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await db.executeQuery(
-            `SELECT * FROM "Purchases" WHERE "PurchaseID" = @Id`, { Id: id }
+        const purchaseResult = await db.executeQuery(
+            `SELECT p.*, v."VendorName", v."City" AS "VendorCity", v."Phone" AS "VendorPhone"
+             FROM "Purchases" p
+             LEFT JOIN "Vendors" v ON p."VendorID" = v."VendorID"
+             WHERE p."PurchaseID" = @Id`,
+            { Id: id }
         );
-        if (!result || result.length === 0) return res.status(404).json({ success: false, message: "Purchase not found" });
-        res.json({ success: true, data: result[0] });
+        if (!purchaseResult || purchaseResult.length === 0)
+            return res.status(404).json({ success: false, message: "Purchase not found" });
+
+        const itemsResult = await db.executeQuery(
+            `SELECT pi."PurchaseItemID", pi."ProductID", pi."Quantity", pi."Rate", pi."Amount",
+                    p."ProductName"
+             FROM "PurchaseItems" pi
+             LEFT JOIN "Products" p ON pi."ProductID" = p."ProductID"
+             WHERE pi."PurchaseID" = @Id`,
+            { Id: id }
+        );
+
+        const purchase = purchaseResult[0];
+        purchase.Items = itemsResult;
+
+        res.json({ success: true, data: purchase });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
