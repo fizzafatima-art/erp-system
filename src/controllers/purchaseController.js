@@ -83,14 +83,15 @@ exports.createPurchase = async (req, res) => {
         const newPurchaseID = masterResult[0].PurchaseID;
 
         for (const item of Items) {
-            const Qty = Number(item.Quantity);
-            const Rate = Number(item.Rate);
-            const ProductID = Number(item.ProductID);
+    const Qty = Number(item.Quantity);
+    const Rate = Number(item.Rate);
+    const ProductID = Number(item.ProductID);
+    const WarehouseID = Number(item.WarehouseID) || 1;
 
-            await db.executeQuery(`
-                INSERT INTO "PurchaseItems" ("PurchaseID", "ProductID", "Quantity", "Rate", "Amount")
-                VALUES (@PurchaseID, @ProductID, @Quantity, @Rate, @Amount)
-            `, { PurchaseID: newPurchaseID, ProductID, Quantity: Qty, Rate, Amount: Qty * Rate });
+    await db.executeQuery(`
+        INSERT INTO "PurchaseItems" ("PurchaseID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
+        VALUES (@PurchaseID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
+    `, { PurchaseID: newPurchaseID, ProductID, Quantity: Qty, Rate, Amount: Qty * Rate, WarehouseID });
 
             try {
                 const checkStock = await db.executeQuery(
@@ -107,6 +108,13 @@ exports.createPurchase = async (req, res) => {
                         VALUES (@ProductID, @Qty, NOW())
                     `, { ProductID, Qty });
                 }
+                // WarehouseStock update karo
+                await db.executeQuery(`
+               INSERT INTO "WarehouseStock" ("WarehouseID", "ProductID", "CurrentQuantity", "LastUpdated")
+               VALUES (@WID, @PID, @Qty, NOW())
+               ON CONFLICT ("WarehouseID", "ProductID")
+               DO UPDATE SET "CurrentQuantity" = "WarehouseStock"."CurrentQuantity" + @Qty, "LastUpdated" = NOW()
+               `, { WID: WarehouseID, PID: ProductID, Qty });
 
                 await db.executeQuery(`
                     INSERT INTO "StockMovement" ("ProductID", "MovementType", "Quantity", "ReferenceID", "ReferenceType", "Remarks", "CreatedAt")
