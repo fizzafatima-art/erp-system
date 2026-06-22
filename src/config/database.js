@@ -11,9 +11,11 @@ const config = {
     // Render PostgreSQL ke liye SSL zaroori hota hai
    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+   max: 5,
+idleTimeoutMillis: 30000,
+connectionTimeoutMillis: 10000,
+statement_timeout: 30000,
+keepAlive: true,
 };
 
 const pool = new Pool(config);
