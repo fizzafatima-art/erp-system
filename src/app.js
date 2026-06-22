@@ -38,7 +38,8 @@ try { loadRoute('/ledger',      require('./routes/ledgerRoutes'));     } catch(e
 try { loadRoute('/expenses',    require('./routes/expenseRoutes'));    } catch(e) { console.log('expenses skip:', e.message); }
 try { loadRoute('/reports',     require('./routes/reportRoutes'));     } catch(e) { console.log('reports skip:', e.message); }
 try { loadRoute('/payments',    require('./routes/paymentRoutes'));    } catch(e) { console.log('payments skip:', e.message); }
-try { loadRoute('/dashboard',   require('./routes/dashboardRoutes'));  } catch(e) { console.log('dashboard skip:', e.message); }
+try { loadRoute('/dashboard',        require('./routes/dashboardRoutes'));   } catch(e) { console.log('dashboard skip:', e.message); }
+try { loadRoute('/bank-reconciliation', require('./routes/bankRoutes'));      } catch(e) { console.log('bank skip:', e.message); }
 
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date() });

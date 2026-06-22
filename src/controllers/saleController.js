@@ -119,15 +119,24 @@ exports.createSale = async (req, res) => {
             const Amount = Qty * Rate;
             const ProductID = Number(item.ProductID);
 
-            await db.executeQuery(`
-                INSERT INTO "SaleItems" ("SaleID", "ProductID", "Quantity", "Rate", "Amount")
-                VALUES (@SaleID, @ProductID, @Quantity, @Rate, @Amount)
-            `, { SaleID: newSaleID, ProductID, Quantity: Qty, Rate, Amount });
+            const WarehouseID = Number(item.WarehouseID) || 1;
 
-            await db.executeQuery(`
-                UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
-                WHERE "ProductID" = @ProductID
-            `, { Qty, ProductID });
+await db.executeQuery(`
+    INSERT INTO "SaleItems" ("SaleID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
+    VALUES (@SaleID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
+`, { SaleID: newSaleID, ProductID, Quantity: Qty, Rate, Amount, WarehouseID });
+
+await db.executeQuery(`
+    UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+    WHERE "ProductID" = @ProductID
+`, { Qty, ProductID });
+
+// WarehouseStock se bhi deduct karo
+await db.executeQuery(`
+    UPDATE "WarehouseStock" 
+    SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+    WHERE "WarehouseID" = @WID AND "ProductID" = @PID
+`, { Qty, WID: WarehouseID, PID: ProductID });
         }
 
         try {
