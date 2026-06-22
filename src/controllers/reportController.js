@@ -58,7 +58,7 @@ const getOutstanding = async (req, res) => {
     }
 };
 
-exports.getVendorProfit = async (req, res) => {
+const getVendorProfit = async (req, res) => {
     try {
         const result = await db.executeQuery(`
             SELECT 
@@ -68,7 +68,7 @@ exports.getVendorProfit = async (req, res) => {
                 COALESCE(SUM(p."BalanceAmount"), 0) AS "TotalBalance"
             FROM "Purchases" p
             JOIN "Vendors" v ON p."VendorID" = v."VendorID"
-            WHERE v."VendorType" IN ('Vendor', 'Supplier', 'Both')
+            WHERE UPPER(v."VendorType") IN ('VENDOR', 'SUPPLIER', 'BOTH')
             GROUP BY v."VendorName"
             ORDER BY "TotalPurchases" DESC
         `);
@@ -78,7 +78,7 @@ exports.getVendorProfit = async (req, res) => {
     }
 };
 
-exports.getTopProducts = async (req, res) => {
+const getTopProducts = async (req, res) => {
     try {
         const result = await db.executeQuery(`
             SELECT p."ProductName", SUM(si."Quantity") AS "TotalSold"
@@ -94,13 +94,13 @@ exports.getTopProducts = async (req, res) => {
     }
 };
 
-exports.getTopCustomers = async (req, res) => {
+const getTopCustomers = async (req, res) => {
     try {
         const result = await db.executeQuery(`
             SELECT v."VendorName" AS "CustomerName", v."City", SUM(s."TotalAmount") AS "TotalSpent"
             FROM "Sales" s
             JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
-            WHERE v."VendorType" = 'Customer'
+            WHERE UPPER(v."VendorType") IN ('CUSTOMER', 'BOTH')
             GROUP BY v."VendorName", v."City"
             ORDER BY "TotalSpent" DESC
             LIMIT 10
@@ -111,14 +111,14 @@ exports.getTopCustomers = async (req, res) => {
     }
 };
 
-exports.getOutstandingCustomers = async (req, res) => {
+const getOutstandingCustomers = async (req, res) => {
     try {
         const result = await db.executeQuery(`
             SELECT v."VendorID", v."VendorName", v."Phone", v."City",
                 SUM(s."BalanceAmount") AS "TotalOutstanding"
             FROM "Sales" s
             JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
-            WHERE v."VendorType" = 'Customer' AND s."BalanceAmount" > 0
+            WHERE UPPER(v."VendorType") IN ('CUSTOMER', 'BOTH') AND s."BalanceAmount" > 0
             GROUP BY v."VendorID", v."VendorName", v."Phone", v."City"
             ORDER BY "TotalOutstanding" DESC
         `);
@@ -128,14 +128,31 @@ exports.getOutstandingCustomers = async (req, res) => {
     }
 };
 
-exports.getCityReport = async (req, res) => {
+const getOutstandingSuppliers = async (req, res) => {
+    try {
+        const result = await db.executeQuery(`
+            SELECT v."VendorID", v."VendorName", v."Phone", v."City",
+                SUM(p."BalanceAmount") AS "TotalOutstanding"
+            FROM "Purchases" p
+            JOIN "Vendors" v ON p."VendorID" = v."VendorID"
+            WHERE UPPER(v."VendorType") IN ('SUPPLIER', 'VENDOR', 'BOTH') AND p."BalanceAmount" > 0
+            GROUP BY v."VendorID", v."VendorName", v."Phone", v."City"
+            ORDER BY "TotalOutstanding" DESC
+        `);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const getCityReport = async (req, res) => {
     try {
         const result = await db.executeQuery(`
             SELECT v."City", COUNT(DISTINCT s."CustomerID") AS "CustomerCount",
                 SUM(s."TotalAmount") AS "TotalSales"
             FROM "Sales" s
             JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
-            WHERE v."VendorType" = 'Customer'
+            WHERE UPPER(v."VendorType") IN ('CUSTOMER', 'BOTH')
             GROUP BY v."City"
             ORDER BY "TotalSales" DESC
         `);
@@ -148,9 +165,10 @@ exports.getCityReport = async (req, res) => {
 module.exports = { 
     getDashboardKPI, 
     getOutstanding,
-    getVendorProfit:             exports.getVendorProfit,
-    getTopProducts:              exports.getTopProducts,
-    getTopCustomers:             exports.getTopCustomers,
-    getOutstandingCustomers:     exports.getOutstandingCustomers,
-    getCityReport:               exports.getCityReport
+    getVendorProfit,
+    getTopProducts,
+    getTopCustomers,
+    getOutstandingCustomers,
+    getOutstandingSuppliers,
+    getCityReport
 };
