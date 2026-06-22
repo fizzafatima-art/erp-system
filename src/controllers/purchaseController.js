@@ -2,7 +2,7 @@ const db = require('../config/database');
 
 exports.getAllPurchases = async (req, res) => {
     try {
-        const query = `
+        const result = await db.executeQuery(`
             SELECT 
                 p."PurchaseID", p."InvoiceNo", p."PurchaseDate", p."VendorID",
                 v."VendorName", p."TotalAmount", p."PaidAmount",
@@ -11,8 +11,7 @@ exports.getAllPurchases = async (req, res) => {
             LEFT JOIN "Vendors" v ON p."VendorID" = v."VendorID"
             WHERE p."IsActive" = true
             ORDER BY p."PurchaseDate" DESC
-        `;
-        const result = await db.executeQuery(query);
+        `);
         res.json({ success: true, data: result });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -43,7 +42,6 @@ exports.getPurchaseById = async (req, res) => {
 
         const purchase = purchaseResult[0];
         purchase.Items = itemsResult;
-
         res.json({ success: true, data: purchase });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -52,11 +50,10 @@ exports.getPurchaseById = async (req, res) => {
 
 exports.createPurchase = async (req, res) => {
     try {
-        const { VendorID, PurchaseDate, Description, TotalAmount, PaidAmount, Items } = req.body;
+        const { VendorID, PurchaseDate, Description, TotalAmount, PaidAmount, PaymentMethod, ChequeNo, BankAccountID, BankDetails, Items } = req.body;
 
-        if (!VendorID || !Items || Items.length === 0) {
+        if (!VendorID || !Items || Items.length === 0)
             return res.status(400).json({ success: false, message: "Vendor and Items are required" });
-        }
 
         const InvoiceNo = `INV-P-${Date.now()}`;
         const Paid = Number(PaidAmount) || 0;
@@ -64,7 +61,6 @@ exports.createPurchase = async (req, res) => {
         const Balance = Total - Paid;
         const PaymentStatus = Balance <= 0 ? 'Paid' : (Paid > 0 ? 'Partial' : 'Pending');
 
-        // PostgreSQL: OUTPUT INSERTED -> RETURNING
         const masterResult = await db.executeQuery(`
             INSERT INTO "Purchases" ("InvoiceNo", "VendorID", "PurchaseDate", "Description", "TotalAmount", "PaidAmount", "BalanceAmount", "PaymentStatus")
             VALUES (@InvoiceNo, @VendorID, @PurchaseDate, @Description, @TotalAmount, @PaidAmount, @BalanceAmount, @PaymentStatus)
@@ -83,15 +79,15 @@ exports.createPurchase = async (req, res) => {
         const newPurchaseID = masterResult[0].PurchaseID;
 
         for (const item of Items) {
-    const Qty = Number(item.Quantity);
-    const Rate = Number(item.Rate);
-    const ProductID = Number(item.ProductID);
-    const WarehouseID = Number(item.WarehouseID) || 1;
+            const Qty = Number(item.Quantity);
+            const Rate = Number(item.Rate);
+            const ProductID = Number(item.ProductID);
+            const WarehouseID = Number(item.WarehouseID) || 1;
 
-    await db.executeQuery(`
-        INSERT INTO "PurchaseItems" ("PurchaseID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
-        VALUES (@PurchaseID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
-    `, { PurchaseID: newPurchaseID, ProductID, Quantity: Qty, Rate, Amount: Qty * Rate, WarehouseID });
+            await db.executeQuery(`
+                INSERT INTO "PurchaseItems" ("PurchaseID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
+                VALUES (@PurchaseID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
+            `, { PurchaseID: newPurchaseID, ProductID, Quantity: Qty, Rate, Amount: Qty * Rate, WarehouseID });
 
             try {
                 const checkStock = await db.executeQuery(
@@ -108,13 +104,13 @@ exports.createPurchase = async (req, res) => {
                         VALUES (@ProductID, @Qty, NOW())
                     `, { ProductID, Qty });
                 }
-                // WarehouseStock update karo
+
                 await db.executeQuery(`
-               INSERT INTO "WarehouseStock" ("WarehouseID", "ProductID", "CurrentQuantity", "LastUpdated")
-               VALUES (@WID, @PID, @Qty, NOW())
-               ON CONFLICT ("WarehouseID", "ProductID")
-               DO UPDATE SET "CurrentQuantity" = "WarehouseStock"."CurrentQuantity" + @Qty, "LastUpdated" = NOW()
-               `, { WID: WarehouseID, PID: ProductID, Qty });
+                    INSERT INTO "WarehouseStock" ("WarehouseID", "ProductID", "CurrentQuantity", "LastUpdated")
+                    VALUES (@WID, @PID, @Qty, NOW())
+                    ON CONFLICT ("WarehouseID", "ProductID")
+                    DO UPDATE SET "CurrentQuantity" = "WarehouseStock"."CurrentQuantity" + @Qty, "LastUpdated" = NOW()
+                `, { WID: WarehouseID, PID: ProductID, Qty });
 
                 await db.executeQuery(`
                     INSERT INTO "StockMovement" ("ProductID", "MovementType", "Quantity", "ReferenceID", "ReferenceType", "Remarks", "CreatedAt")
@@ -125,6 +121,7 @@ exports.createPurchase = async (req, res) => {
             }
         }
 
+        // Ledger entries
         try {
             await db.executeQuery(`
                 INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Debit", "CreatedAt")
@@ -155,6 +152,25 @@ exports.createPurchase = async (req, res) => {
             console.error("Ledger Failed (non-blocking):", ledgerError);
         }
 
+        // ✅ BankPayments entry
+        if (Paid > 0 && BankAccountID && (PaymentMethod === 'Bank Transfer' || PaymentMethod === 'Online')) {
+            try {
+                await db.executeQuery(`
+                    INSERT INTO "BankPayments" ("AccountID", "TransactionDate", "TransactionType", "ReferenceType", "ReferenceID", "Description", "Debit", "Credit")
+                    VALUES (@AccountID, @TDate, @TType, 'Purchase', @RefID, @Desc, @Debit, 0)
+                `, {
+                    AccountID: Number(BankAccountID),
+                    TDate: PurchaseDate || new Date(),
+                    TType: PaymentMethod,
+                    RefID: newPurchaseID,
+                    Desc: `Purchase Payment: ${InvoiceNo}${BankDetails ? ' | ' + BankDetails : ''}`,
+                    Debit: Paid
+                });
+            } catch (bankErr) {
+                console.error("BankPayments insert failed:", bankErr.message);
+            }
+        }
+
         res.status(201).json({ success: true, message: "Purchase created", PurchaseID: newPurchaseID, InvoiceNo });
     } catch (error) {
         console.error("Full Error creating Purchase:", error);
@@ -165,7 +181,7 @@ exports.createPurchase = async (req, res) => {
 exports.addPayment = async (req, res) => {
     try {
         const purchaseID = Number(req.params.id);
-        const { amount, method, chequeNo, bankDetails, notes } = req.body;
+        const { amount, method, chequeNo, bankAccountID, bankDetails, notes } = req.body;
 
         if (!amount || Number(amount) <= 0)
             return res.status(400).json({ success: false, message: "Valid amount is required" });
@@ -189,6 +205,41 @@ exports.addPayment = async (req, res) => {
                 "PaymentStatus" = @status
             WHERE "PurchaseID" = @ID
         `, { paid: newPaid, balance: newBalance, status: newStatus, ID: purchaseID });
+
+        // Ledger entry
+        try {
+            const remarks = `Payment (${method || 'Cash'})${chequeNo ? ' Chq#' + chequeNo : ''}${bankDetails ? ' - ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
+            await db.executeQuery(`
+                INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Credit", "CreatedAt")
+                VALUES (@VendorID, NOW(), 'Payment', @Remarks, @RefID, @InvoiceNo, @Amount, NOW())
+            `, {
+                VendorID:  Number(purchase.VendorID),
+                Remarks:   remarks,
+                RefID:     purchaseID,
+                InvoiceNo: purchase.InvoiceNo,
+                Amount:    payAmount
+            });
+        } catch (ledgerErr) {
+            console.error("Ledger entry failed:", ledgerErr.message);
+        }
+
+        // ✅ BankPayments entry
+        if (bankAccountID && (method === 'Bank Transfer' || method === 'Online')) {
+            try {
+                await db.executeQuery(`
+                    INSERT INTO "BankPayments" ("AccountID", "TransactionDate", "TransactionType", "ReferenceType", "ReferenceID", "Description", "Debit", "Credit")
+                    VALUES (@AccountID, NOW(), @TType, 'Purchase', @RefID, @Desc, @Debit, 0)
+                `, {
+                    AccountID: Number(bankAccountID),
+                    TType: method,
+                    RefID: purchaseID,
+                    Desc: `Purchase Payment: ${purchase.InvoiceNo}${bankDetails ? ' | ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`,
+                    Debit: payAmount
+                });
+            } catch (bankErr) {
+                console.error("BankPayments insert failed:", bankErr.message);
+            }
+        }
 
         res.json({ success: true, message: "Payment recorded", newBalance, newStatus });
     } catch (error) {
