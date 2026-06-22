@@ -50,15 +50,14 @@ exports.getSaleById = async (req, res) => {
     }
 };
 
-// @desc    Create a new Sale (with Stock Validation)
 exports.createSale = async (req, res) => {
     try {
-        const { CustomerID, SaleDate, Description, TotalAmount, ReceivedAmount, Items } = req.body;
+        const { CustomerID, SaleDate, Description, TotalAmount, ReceivedAmount, PaymentMethod, ChequeNo, BankAccountID, BankDetails, Items } = req.body;
 
         if (!CustomerID || !Items || Items.length === 0)
             return res.status(400).json({ success: false, message: "Customer and Items are required" });
 
-        // ✅ STEP 1: Stock Validation - har item ka stock check karo BEFORE insert
+        // Stock Validation
         for (const item of Items) {
             const ProductID = Number(item.ProductID);
             const Qty = Number(item.Quantity);
@@ -74,19 +73,11 @@ exports.createSale = async (req, res) => {
             const available = stockRes.length > 0 ? Number(stockRes[0].CurrentQuantity) : 0;
             const productName = stockRes.length > 0 ? stockRes[0].ProductName : `Product #${ProductID}`;
 
-            if (available <= 0) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `"${productName}" is Out of Stock!` 
-                });
-            }
+            if (available <= 0)
+                return res.status(400).json({ success: false, message: `"${productName}" is Out of Stock!` });
 
-            if (available < Qty) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `Insufficient stock for "${productName}". Available: ${available}, Requested: ${Qty}` 
-                });
-            }
+            if (available < Qty)
+                return res.status(400).json({ success: false, message: `Insufficient stock for "${productName}". Available: ${available}, Requested: ${Qty}` });
         }
 
         const InvoiceNo = `INV-S-${Date.now()}`;
@@ -118,27 +109,26 @@ exports.createSale = async (req, res) => {
             const Rate = Number(item.Rate);
             const Amount = Qty * Rate;
             const ProductID = Number(item.ProductID);
-
             const WarehouseID = Number(item.WarehouseID) || 1;
 
-await db.executeQuery(`
-    INSERT INTO "SaleItems" ("SaleID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
-    VALUES (@SaleID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
-`, { SaleID: newSaleID, ProductID, Quantity: Qty, Rate, Amount, WarehouseID });
+            await db.executeQuery(`
+                INSERT INTO "SaleItems" ("SaleID", "ProductID", "Quantity", "Rate", "Amount", "WarehouseID")
+                VALUES (@SaleID, @ProductID, @Quantity, @Rate, @Amount, @WarehouseID)
+            `, { SaleID: newSaleID, ProductID, Quantity: Qty, Rate, Amount, WarehouseID });
 
-await db.executeQuery(`
-    UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
-    WHERE "ProductID" = @ProductID
-`, { Qty, ProductID });
+            await db.executeQuery(`
+                UPDATE "Stock" SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+                WHERE "ProductID" = @ProductID
+            `, { Qty, ProductID });
 
-// WarehouseStock se bhi deduct karo
-await db.executeQuery(`
-    UPDATE "WarehouseStock" 
-    SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
-    WHERE "WarehouseID" = @WID AND "ProductID" = @PID
-`, { Qty, WID: WarehouseID, PID: ProductID });
+            await db.executeQuery(`
+                UPDATE "WarehouseStock" 
+                SET "CurrentQuantity" = "CurrentQuantity" - @Qty, "LastUpdated" = NOW()
+                WHERE "WarehouseID" = @WID AND "ProductID" = @PID
+            `, { Qty, WID: WarehouseID, PID: ProductID });
         }
 
+        // Ledger entry
         try {
             await db.executeQuery(`
                 INSERT INTO "Ledger" ("VendorID", "TransactionDate", "TransactionType", "Remarks", "ReferenceID", "InvoiceNo", "Credit", "CreatedAt")
@@ -155,6 +145,26 @@ await db.executeQuery(`
             console.error("Ledger Update Failed:", ledgerError);
         }
 
+        // ✅ BankPayments entry — agar bank transfer/online tha aur amount > 0
+        if (Paid > 0 && BankAccountID && (PaymentMethod === 'Bank Transfer' || PaymentMethod === 'Online')) {
+            try {
+                const remarks = `Sale Payment: ${InvoiceNo}${BankDetails ? ' | ' + BankDetails : ''}`;
+                await db.executeQuery(`
+                    INSERT INTO "BankPayments" ("AccountID", "TransactionDate", "TransactionType", "ReferenceType", "ReferenceID", "Description", "Credit", "Debit")
+                    VALUES (@AccountID, @TDate, @TType, 'Sale', @RefID, @Desc, @Credit, 0)
+                `, {
+                    AccountID: Number(BankAccountID),
+                    TDate: SaleDate || new Date(),
+                    TType: PaymentMethod,
+                    RefID: newSaleID,
+                    Desc: remarks,
+                    Credit: Paid
+                });
+            } catch (bankErr) {
+                console.error("BankPayments insert failed (non-blocking):", bankErr.message);
+            }
+        }
+
         res.status(201).json({ success: true, message: "Sale created", SaleID: newSaleID, InvoiceNo });
     } catch (error) {
         console.error("Full Error creating Sale:", error);
@@ -165,7 +175,7 @@ await db.executeQuery(`
 exports.addPayment = async (req, res) => {
     try {
         const saleID = Number(req.params.id);
-        const { amount, method, chequeNo, bankDetails, notes } = req.body;
+        const { amount, method, chequeNo, bankAccountID, bankDetails, notes } = req.body;
 
         if (!amount || Number(amount) <= 0)
             return res.status(400).json({ success: false, message: "Valid amount is required" });
@@ -177,7 +187,7 @@ exports.addPayment = async (req, res) => {
             return res.status(404).json({ success: false, message: "Sale not found" });
 
         const sale = saleRes[0];
-        const payAmount  = Math.min(Number(amount), Number(sale.BalanceAmount));
+        const payAmount   = Math.min(Number(amount), Number(sale.BalanceAmount));
         const newReceived = Number(sale.ReceivedAmount) + payAmount;
         const newBalance  = Number(sale.TotalAmount) - newReceived;
         const newStatus   = newBalance <= 0 ? 'Paid' : 'Partial';
@@ -190,6 +200,7 @@ exports.addPayment = async (req, res) => {
             WHERE "SaleID" = @SaleID
         `, { received: newReceived, balance: newBalance, status: newStatus, SaleID: saleID });
 
+        // Ledger entry
         try {
             const remarks = `Payment (${method || 'Cash'})${chequeNo ? ' Chq#' + chequeNo : ''}${bankDetails ? ' - ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
             await db.executeQuery(`
@@ -204,6 +215,25 @@ exports.addPayment = async (req, res) => {
             });
         } catch (ledgerErr) {
             console.error("Ledger entry failed (non-blocking):", ledgerErr.message);
+        }
+
+        // ✅ BankPayments entry — agar bank transfer/online tha
+        if (bankAccountID && (method === 'Bank Transfer' || method === 'Online')) {
+            try {
+                const desc = `Sale Payment: ${sale.InvoiceNo}${bankDetails ? ' | ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
+                await db.executeQuery(`
+                    INSERT INTO "BankPayments" ("AccountID", "TransactionDate", "TransactionType", "ReferenceType", "ReferenceID", "Description", "Credit", "Debit")
+                    VALUES (@AccountID, NOW(), @TType, 'Sale', @RefID, @Desc, @Credit, 0)
+                `, {
+                    AccountID: Number(bankAccountID),
+                    TType: method,
+                    RefID: saleID,
+                    Desc: desc,
+                    Credit: payAmount
+                });
+            } catch (bankErr) {
+                console.error("BankPayments insert failed (non-blocking):", bankErr.message);
+            }
         }
 
         res.json({ success: true, message: "Payment recorded successfully", newBalance, newStatus });
