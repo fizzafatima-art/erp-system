@@ -7,7 +7,13 @@ exports.getAllSales = async (req, res) => {
                 s."SaleID", s."InvoiceNo", s."SaleDate", s."CustomerID",
                 v."VendorName" AS "CustomerName", v."City",
                 s."TotalAmount", s."ReceivedAmount" AS "PaidAmount",
-                s."BalanceAmount", s."PaymentStatus", s."Description"
+                s."BalanceAmount", s."PaymentStatus", s."Description",
+                (
+                    SELECT STRING_AGG(DISTINCT w."WarehouseName", ', ')
+                    FROM "SaleItems" si
+                    LEFT JOIN "Warehouses" w ON si."WarehouseID" = w."WarehouseID"
+                    WHERE si."SaleID" = s."SaleID"
+                ) AS "Warehouses"
             FROM "Sales" s
             LEFT JOIN "Vendors" v ON s."CustomerID" = v."VendorID"
             WHERE s."IsActive" = true
