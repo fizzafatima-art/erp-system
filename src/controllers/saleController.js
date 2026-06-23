@@ -8,6 +8,7 @@ exports.getAllSales = async (req, res) => {
                 v."VendorName" AS "CustomerName", v."City",
                 s."TotalAmount", s."ReceivedAmount" AS "PaidAmount",
                 s."BalanceAmount", s."PaymentStatus", s."Description",
+                s."PaymentMethod", s."ChequeNo", s."BankDetails",
                 (
                     SELECT STRING_AGG(DISTINCT w."WarehouseName", ', ')
                     FROM "SaleItems" si
@@ -39,7 +40,7 @@ exports.getSaleById = async (req, res) => {
             return res.status(404).json({ success: false, message: "Sale not found" });
 
         const itemsResult = await db.executeQuery(
-            `SELECT si."SaleItemID", si."ProductID", si."Quantity", si."Rate", si."Amount",
+            `SELECT si."SaleItemID", si."ProductID", si."Quantity", si."Rate", si."Amount", si."WarehouseID",
                     p."ProductName"
              FROM "SaleItems" si
              LEFT JOIN "Products" p ON si."ProductID" = p."ProductID"
@@ -92,9 +93,10 @@ exports.createSale = async (req, res) => {
         const Balance = Total - Paid;
         const PaymentStatus = Balance <= 0 ? 'Paid' : (Paid > 0 ? 'Partial' : 'Pending');
 
+        // ✅ FIX: PaymentMethod, ChequeNo, BankDetails bhi save ho rahe hain
         const masterResult = await db.executeQuery(`
-            INSERT INTO "Sales" ("InvoiceNo", "CustomerID", "SaleDate", "Description", "TotalAmount", "ReceivedAmount", "BalanceAmount", "PaymentStatus")
-            VALUES (@InvoiceNo, @CustomerID, @SaleDate, @Description, @TotalAmount, @ReceivedAmount, @BalanceAmount, @PaymentStatus)
+            INSERT INTO "Sales" ("InvoiceNo", "CustomerID", "SaleDate", "Description", "TotalAmount", "ReceivedAmount", "BalanceAmount", "PaymentStatus", "PaymentMethod", "ChequeNo", "BankDetails")
+            VALUES (@InvoiceNo, @CustomerID, @SaleDate, @Description, @TotalAmount, @ReceivedAmount, @BalanceAmount, @PaymentStatus, @PaymentMethod, @ChequeNo, @BankDetails)
             RETURNING "SaleID"
         `, {
             InvoiceNo,
@@ -104,7 +106,10 @@ exports.createSale = async (req, res) => {
             TotalAmount: Total,
             ReceivedAmount: Paid,
             BalanceAmount: Balance,
-            PaymentStatus
+            PaymentStatus,
+            PaymentMethod: PaymentMethod || 'Cash',
+            ChequeNo: ChequeNo || '',
+            BankDetails: BankDetails || ''
         });
 
         const newSaleID = masterResult[0].SaleID;
@@ -142,7 +147,7 @@ exports.createSale = async (req, res) => {
             `, {
                 VendorID: Number(CustomerID),
                 SaleDate: SaleDate || new Date(),
-                Remarks: `Sale: ${InvoiceNo}`,
+                Remarks: `Sale: ${InvoiceNo}${PaymentMethod !== 'Cash' ? ' (' + PaymentMethod + ')' : ''}`,
                 RefID: newSaleID,
                 InvoiceNo,
                 Amount: Total
@@ -151,7 +156,7 @@ exports.createSale = async (req, res) => {
             console.error("Ledger Update Failed:", ledgerError);
         }
 
-        // ✅ BankPayments entry — agar bank transfer/online tha aur amount > 0
+        // BankPayments entry
         if (Paid > 0 && BankAccountID && (PaymentMethod === 'Bank Transfer' || PaymentMethod === 'Online')) {
             try {
                 const remarks = `Sale Payment: ${InvoiceNo}${BankDetails ? ' | ' + BankDetails : ''}`;
@@ -198,13 +203,25 @@ exports.addPayment = async (req, res) => {
         const newBalance  = Number(sale.TotalAmount) - newReceived;
         const newStatus   = newBalance <= 0 ? 'Paid' : 'Partial';
 
+        // ✅ FIX: Payment method aur ChequeNo bhi update ho
         await db.executeQuery(`
             UPDATE "Sales"
             SET "ReceivedAmount" = @received,
                 "BalanceAmount"  = @balance,
-                "PaymentStatus"  = @status
+                "PaymentStatus"  = @status,
+                "PaymentMethod"  = COALESCE(NULLIF(@method, ''), "PaymentMethod"),
+                "ChequeNo"      = COALESCE(NULLIF(@chequeNo, ''), "ChequeNo"),
+                "BankDetails"   = COALESCE(NULLIF(@bankDetails, ''), "BankDetails")
             WHERE "SaleID" = @SaleID
-        `, { received: newReceived, balance: newBalance, status: newStatus, SaleID: saleID });
+        `, { 
+            received: newReceived, 
+            balance: newBalance, 
+            status: newStatus, 
+            method: method || '', 
+            chequeNo: chequeNo || '', 
+            bankDetails: bankDetails || '',
+            SaleID: saleID 
+        });
 
         // Ledger entry
         try {
@@ -223,7 +240,7 @@ exports.addPayment = async (req, res) => {
             console.error("Ledger entry failed (non-blocking):", ledgerErr.message);
         }
 
-        // ✅ BankPayments entry — agar bank transfer/online tha
+        // BankPayments entry
         if (bankAccountID && (method === 'Bank Transfer' || method === 'Online')) {
             try {
                 const desc = `Sale Payment: ${sale.InvoiceNo}${bankDetails ? ' | ' + bankDetails : ''}${notes ? ' | ' + notes : ''}`;
@@ -301,6 +318,7 @@ exports.returnSale = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
 exports.getProductWarehouseStock = async (req, res) => {
     try {
         const ProductID = Number(req.params.productId);
