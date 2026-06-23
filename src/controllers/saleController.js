@@ -295,3 +295,21 @@ exports.returnSale = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+exports.getProductWarehouseStock = async (req, res) => {
+    try {
+        const ProductID = Number(req.params.productId);
+        const result = await db.executeQuery(`
+            SELECT 
+                w."WarehouseID", w."WarehouseName", w."Location", w."City",
+                COALESCE(ws."CurrentQuantity", 0) AS "CurrentQuantity"
+            FROM "Warehouses" w
+            LEFT JOIN "WarehouseStock" ws 
+                ON w."WarehouseID" = ws."WarehouseID" AND ws."ProductID" = @ProductID
+            WHERE w."IsActive" = true
+            ORDER BY w."WarehouseName"
+        `, { ProductID });
+        res.json({ success: true, data: result });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
